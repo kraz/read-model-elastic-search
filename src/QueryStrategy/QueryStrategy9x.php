@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelElasticSearch\QueryStrategy;
 
+use function is_array;
+use function key;
+
 /**
  * ElasticSearch 9.x query strategy.
  *
@@ -18,7 +21,7 @@ final class QueryStrategy9x implements QueryStrategyInterface
     ) {
     }
 
-    public function buildFullTextSearchWithFilter(string $term, ?array $filterQuery): array
+    public function buildFullTextSearchWithFilter(string $term, array|null $filterQuery): array
     {
         $fullTextQuery = [
             'match' => [
@@ -29,7 +32,7 @@ final class QueryStrategy9x implements QueryStrategyInterface
             ],
         ];
 
-        if (\is_array($filterQuery)) {
+        if (is_array($filterQuery)) {
             return [
                 'bool' => [
                     'must' => [$fullTextQuery],
@@ -41,16 +44,16 @@ final class QueryStrategy9x implements QueryStrategyInterface
         return $fullTextQuery;
     }
 
-    public function getSortableField(string $field, ?string $fieldType): string
+    public function getSortableField(string $field, string|null $fieldType): string
     {
-        if ('text' === $fieldType) {
-            return $field.'.keyword';
+        if ($fieldType === 'text') {
+            return $field . '.keyword';
         }
 
         return $field;
     }
 
-    public function getUnmappedType(?string $fieldType): string
+    public function getUnmappedType(string|null $fieldType): string
     {
         return match ($fieldType) {
             'text' => 'keyword',
@@ -73,7 +76,7 @@ final class QueryStrategy9x implements QueryStrategyInterface
     {
         $total = $result['hits']['total'] ?? 0;
 
-        if (\is_array($total)) {
+        if (is_array($total)) {
             return (int) ($total['value'] ?? 0);
         }
 

@@ -6,8 +6,7 @@ namespace Kraz\ReadModelElasticSearch;
 
 /**
  * @phpstan-template-covariant T of object|array<string, mixed>
- *
- * @extends<T>
+ * @extends RawQuerySearchReadModelInterface<T>
  */
 interface ElasticRawQuerySearchReadModelInterface extends RawQuerySearchReadModelInterface
 {

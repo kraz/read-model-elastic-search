@@ -14,5 +14,5 @@ interface ElasticSearchReadClientInterface
      *
      * @phpstan-return ReadResponse<covariant T>
      */
-    public function read(array $query = [], ?string $index = null): ReadResponse;
+    public function read(array $query = [], string|null $index = null): ReadResponse;
 }

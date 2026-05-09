@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelElasticSearch\QueryStrategy;
 
+use function is_array;
+use function key;
+
 /**
  * ElasticSearch 1.x query strategy.
  *
@@ -12,9 +15,9 @@ namespace Kraz\ReadModelElasticSearch\QueryStrategy;
  */
 final class QueryStrategy1x implements QueryStrategyInterface
 {
-    public function buildFullTextSearchWithFilter(string $term, ?array $filterQuery): array
+    public function buildFullTextSearchWithFilter(string $term, array|null $filterQuery): array
     {
-        if (\is_array($filterQuery)) {
+        if (is_array($filterQuery)) {
             return [
                 'filtered' => [
                     'query' => [
@@ -40,12 +43,12 @@ final class QueryStrategy1x implements QueryStrategyInterface
         ];
     }
 
-    public function getSortableField(string $field, ?string $fieldType): string
+    public function getSortableField(string $field, string|null $fieldType): string
     {
         return $field;
     }
 
-    public function getUnmappedType(?string $fieldType): string
+    public function getUnmappedType(string|null $fieldType): string
     {
         return match ($fieldType) {
             'text' => 'string',
