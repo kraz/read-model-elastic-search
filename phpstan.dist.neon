@@ -1,0 +1,11 @@
+parameters:
+    level: 8
+    reportUnmatchedIgnoredErrors: true
+    treatPhpDocTypesAsCertain: false
+    paths:
+        - src/
+        - tests/
+#    ignoreErrors:
+#        -
+#            identifier: staticMethod.alreadyNarrowedType
+#            path: tests/
