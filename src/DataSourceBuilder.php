@@ -137,6 +137,7 @@ class DataSourceBuilder implements ReadDataProviderCompositionInterface, ReadDat
         return $this->apply($dataSource);
     }
 
+    #[Override]
     public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): static
     {
         throw new LogicException('Unsupported operation. The data source builder can not handle requests.');

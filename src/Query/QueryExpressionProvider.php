@@ -108,7 +108,16 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
     #[Override]
     public function apply(mixed $data, QueryExpression $queryExpression, ReadModelDescriptor|null $descriptor = null, array $options = [], int $includeData = self::INCLUDE_DATA_ALL): array
     {
-        $fieldMapping       = count($this->fieldMapping) > 0 ? $this->fieldMapping : [];
+        $optDescriptor = $options['read_model_descriptor'] ?? null;
+        if ($descriptor === null && is_string($optDescriptor)) {
+            $optDescriptor = $this->descriptorFactory->createReadModelDescriptorFrom($optDescriptor);
+        }
+
+        if ($descriptor === null && $optDescriptor instanceof ReadModelDescriptor) {
+            $descriptor = $optDescriptor;
+        }
+
+        $fieldMapping       = count($this->fieldMapping) > 0 ? $this->fieldMapping : ($descriptor->fieldMap ?? []);
         $fullTextSearchTerm = $options['fullTextSearchTerm'] ?? null;
 
         $identifierField = is_string($this->rootIdentifier) ? $this->rootIdentifier : ($this->rootIdentifier[0] ?? 'id');

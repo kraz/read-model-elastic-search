@@ -20,12 +20,14 @@ use function mb_strtolower;
 
 final class QueryExpressionHelper
 {
+    /** @phpstan-param array<string, mixed> $indexMapping */
     private function __construct(
         private readonly array $indexMapping,
         private readonly QueryStrategyInterface $queryStrategy,
     ) {
     }
 
+    /** @phpstan-param array<string, mixed> $indexMapping */
     public static function create(array $indexMapping, QueryStrategyInterface $queryStrategy): self
     {
         return new self($indexMapping, $queryStrategy);

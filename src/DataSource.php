@@ -60,7 +60,7 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
     private string|null $fullTextSearchTerm            = null;
     private string|null $rawQuerySearchPayload         = null;
 
-    /** @param ElasticSearchClientInterface&ElasticSearchReadClientInterface<T> $client */
+    /** @phpstan-param ElasticSearchClientInterface&ElasticSearchReadClientInterface<T> $client */
     public function __construct(
         private readonly ElasticSearchClientInterface&ElasticSearchReadClientInterface $client,
         private readonly string $identifierField = 'id',
@@ -69,7 +69,7 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
     ) {
     }
 
-    /** @return ReadDataProviderPayload<T> */
+    /** @phpstan-return ReadDataProviderPayload<T> */
     private function getPayload(): ReadDataProviderPayload
     {
         if ($this->payload !== null) {
@@ -148,7 +148,7 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
         throw new LogicException('Query modifiers are not supported in the ElasticSearch DataSource.');
     }
 
-    /** @return array<int, T> */
+    /** @phpstan-return array<int, T> */
     private function filteredItems(): array
     {
         $items = $this->getPayload()->getData();
@@ -157,9 +157,8 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
             return $items;
         }
 
-        return array_values(array_filter($items, function (mixed $item): bool {
+        return array_values(array_filter($items, /** @phpstan-param T $item */ function (mixed $item): bool {
             foreach ($this->specifications as $specification) {
-                /** @var T $item */
                 if (! $specification->isSatisfiedBy($item)) {
                     return false;
                 }

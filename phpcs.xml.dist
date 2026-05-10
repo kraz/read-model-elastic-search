@@ -27,4 +27,13 @@
         <exclude-pattern>tests/*</exclude-pattern>
     </rule>
 
+    <rule ref="SlevomatCodingStandard.TypeHints.ParameterTypeHint.MissingTraversableTypeHintSpecification">
+        <exclude-pattern>src/Query/QueryExpressionHelper.php</exclude-pattern>
+        <exclude-pattern>src/QueryStrategy/*x.php</exclude-pattern>
+    </rule>
+
+    <rule ref="SlevomatCodingStandard.TypeHints.ReturnTypeHint.MissingTraversableTypeHintSpecification">
+        <exclude-pattern>src/Query/QueryExpressionHelper.php</exclude-pattern>
+        <exclude-pattern>src/QueryStrategy/*x.php</exclude-pattern>
+    </rule>
 </ruleset>

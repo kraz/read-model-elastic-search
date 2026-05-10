@@ -6,6 +6,7 @@ namespace Kraz\ReadModelElasticSearch;
 
 use Kraz\ElasticSearchClient\ElasticSearchClientInterface;
 use Kraz\ElasticSearchClient\ElasticSearchResponse;
+use Override;
 use stdClass;
 use Webmozart\Assert\Assert;
 
@@ -21,16 +22,19 @@ abstract class ElasticSearchClientGateway implements ElasticSearchClientInterfac
     ) {
     }
 
+    #[Override]
     public function search(array $query = [], string|null $index = null): ElasticSearchResponse
     {
         return $this->api->search($query, $index);
     }
 
+    #[Override]
     public function getMapping(string|null $index = null): ElasticSearchResponse
     {
         return $this->api->getMapping($index);
     }
 
+    #[Override]
     public function getFlattenedMapping(string|null $index = null, callable|null $mappingExtractor = null): array
     {
         return $this->api->getFlattenedMapping($index, $mappingExtractor);
