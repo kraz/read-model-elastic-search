@@ -9,15 +9,17 @@ use InvalidArgumentException;
 use Kraz\ElasticSearchClient\ElasticSearchClientInterface;
 use Kraz\ReadModel\Pagination\InMemoryPaginator;
 use Kraz\ReadModel\Pagination\PaginatorInterface;
-use Kraz\ReadModel\Query\FilterExpression;
 use Kraz\ReadModel\Query\QueryExpression;
+use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\ReadDataProviderAccess;
 use Kraz\ReadModel\ReadDataProviderComposition;
 use Kraz\ReadModel\ReadDataProviderCompositionInterface;
 use Kraz\ReadModel\ReadDataProviderInterface;
 use Kraz\ReadModel\ReadDataProviderPayload;
+use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModel\ReadResponse;
 use Kraz\ReadModel\Tools\CollectionUtils;
+use Kraz\ReadModelElasticSearch\Query\QueryExpressionProvider;
 use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategy9x;
 use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategyInterface;
 use LogicException;
@@ -25,23 +27,16 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 use Override;
 use Psr\Http\Message\RequestInterface;
 use RuntimeException;
-use stdClass;
 use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 use Traversable;
 
 use function array_filter;
-use function array_map;
-use function array_reduce;
 use function array_values;
 use function class_exists;
 use function count;
-use function explode;
-use function in_array;
-use function is_array;
 use function iterator_to_array;
 use function json_decode;
-use function mb_strtolower;
 use function parse_str;
 use function sprintf;
 
@@ -101,7 +96,20 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
             return clone $this->queryExpressions[0];
         }
 
-        return array_reduce($this->queryExpressions, static fn (QueryExpression $qx, QueryExpression $item) => $qx->wrap($item), QueryExpression::create());
+        $base = QueryExpression::create();
+        foreach ($this->queryExpressions as $item) {
+            $base = $base->wrap($item);
+        }
+
+        return $base;
+    }
+
+    protected function createDefaultQueryExpressionProvider(ReadModelDescriptorFactoryInterface $factory): QueryExpressionProviderInterface
+    {
+        $provider = new QueryExpressionProvider($factory, $this->queryStrategy);
+        $provider->setRootIdentifier($this->identifierField);
+
+        return $provider;
     }
 
     /** @phpstan-return array<string, mixed> */
@@ -111,52 +119,13 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
             return json_decode($this->rawQuerySearchPayload, true);
         }
 
-        $params = [];
+        $queryExpression = $this->getWrappedQueryExpression() ?? QueryExpression::create();
+        $provider        = $this->getOrCreateQueryExpressionProvider();
 
-        $queryExpression = $this->getWrappedQueryExpression()?->toArray() ?? [];
-        $fieldMapping    = $this->getOrCreateQueryExpressionProvider()->getFieldMapping();
-        if (count($queryExpression) > 0 && count($fieldMapping) > 0) {
-            $queryExpression = QueryExpression::applyFieldMapping($queryExpression, $fieldMapping);
-        }
-
-        $filter = $queryExpression['filters'] ?? $queryExpression['filter'] ?? null;
-        $sort   = $queryExpression['sort'] ?? null;
-        $values = $queryExpression['values'] ?? null;
-
-        $elasticMapping = null;
-        $filterQuery    = null;
-
-        if (is_array($filter)) {
-            $filter = FilterExpression::walkFieldValues($filter, fn ($field, $value) => $this->escapeQueryString($value));
-            /** @phpstan-ignore nullCoalesce.variable */
-            $elasticMapping ??= $this->client->getFlattenedMapping($this->index, $this->queryStrategy->extractMappingProperties(...));
-            $filterQuery      = $this->buildElasticQuery($filter, $elasticMapping);
-        }
-
-        if ($this->fullTextSearchTerm !== null) {
-            $params['query'] = $this->queryStrategy->buildFullTextSearchWithFilter(
-                $this->escapeQueryString($this->fullTextSearchTerm),
-                $filterQuery,
-            );
-        } elseif (is_array($filterQuery)) {
-            $params['query'] = $filterQuery;
-        }
-
-        if (is_array($sort)) {
-            $elasticMapping ??= $this->client->getFlattenedMapping($this->index, $this->queryStrategy->extractMappingProperties(...));
-            $params['sort']   = $this->buildElasticSort($sort, $elasticMapping);
-        }
-
-        if (is_array($values)) {
-            $valuesQuery      = FilterExpression::create()
-                ->inList($fieldMapping[$this->identifierField] ?? $this->identifierField, array_map($this->escapeQueryString(...), $values))->toArray();
-            $elasticMapping ??= $this->client->getFlattenedMapping($this->index, $this->queryStrategy->extractMappingProperties(...));
-            $params['query'] = $this->buildElasticQuery($valuesQuery, $elasticMapping);
-        }
-
-        if (! isset($params['query'])) {
-            $params['query'] = ['match_all' => new stdClass()];
-        }
+        $params = $provider->apply([], $queryExpression, null, [
+            'getIndexMappingFn'      => fn () => $this->client->getFlattenedMapping($this->index, $this->queryStrategy->extractMappingProperties(...)),
+            'fullTextSearchTerm' => $this->fullTextSearchTerm,
+        ]);
 
         if ($this->pagination !== null) {
             [$page, $itemsPerPage] = $this->pagination;
@@ -171,508 +140,6 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
         }
 
         return $params;
-    }
-
-    /** @phpstan-ignore missingType.iterableValue, missingType.iterableValue, missingType.iterableValue */
-    private function buildElasticSort(array $sort, array $mapping): array
-    {
-        if (empty($sort)) {
-            return [];
-        }
-
-        $elasticSort = [];
-
-        foreach ($sort as $sortItem) {
-            $field     = $sortItem['field'] ?? null;
-            $direction = $sortItem['dir'] ?? 'asc';
-
-            if ($field === null) {
-                continue;
-            }
-
-            // Normalize direction
-            $direction = mb_strtolower($direction);
-            if (! in_array($direction, ['asc', 'desc'], true)) {
-                $direction = 'asc';
-            }
-
-            // Get field information from mapping
-            $fieldInfo  = $this->getFieldInfo($field, $mapping);
-            $fieldType  = $fieldInfo['type'];
-            $nestedPath = $fieldInfo['nestedPath'];
-
-            if ($nestedPath !== null) {
-                $elasticSort[] = $this->buildNestedSort($field, $direction, $nestedPath, $fieldType);
-            } else {
-                $elasticSort[] = $this->buildRegularSort($field, $direction, $fieldType);
-            }
-        }
-
-        return $elasticSort;
-    }
-
-    /** @phpstan-ignore missingType.iterableValue */
-    private function buildNestedSort(string $field, string $direction, string $nestedPath, string|null $fieldType): array
-    {
-        $sortField    = $this->queryStrategy->getSortableField($field, $fieldType);
-        $unmappedType = $this->queryStrategy->getUnmappedType($fieldType);
-
-        return [
-            $sortField => [
-                'order' => $direction,
-                'missing' => $direction === 'desc' ? '_first' : '_last',
-                'nested' => ['path' => $nestedPath],
-                'unmapped_type' => $unmappedType,
-            ],
-        ];
-    }
-
-    /** @phpstan-ignore missingType.iterableValue */
-    private function buildRegularSort(string $field, string $direction, string|null $fieldType): array
-    {
-        $sortField    = $this->queryStrategy->getSortableField($field, $fieldType);
-        $unmappedType = $this->queryStrategy->getUnmappedType($fieldType);
-
-        return [
-            $sortField => [
-                'order' => $direction,
-                'missing' => $direction === 'desc' ? '_first' : '_last',
-                'unmapped_type' => $unmappedType,
-            ],
-        ];
-    }
-
-    /** @phpstan-ignore missingType.iterableValue, missingType.iterableValue, missingType.iterableValue */
-    private function buildElasticQuery(array $filter, array $mapping): array
-    {
-        if (empty($filter)) {
-            return ['match_all' => new stdClass()];
-        }
-
-        return $this->convertFilterToElasticQuery($filter, $mapping);
-    }
-
-    /** @phpstan-ignore missingType.iterableValue, missingType.iterableValue, missingType.iterableValue */
-    private function convertFilterToElasticQuery(array $filter, array $mapping): array
-    {
-        // Check if this is a simple filter (has field/operator/value) or complex filter (has filters/logic)
-        if (isset($filter['field']) && isset($filter['operator'])) {
-            return $this->buildSimpleFilter($filter, $mapping);
-        }
-
-        if (isset($filter['filters']) && is_array($filter['filters'])) {
-            return $this->buildComplexFilter($filter, $mapping);
-        }
-
-        // If neither structure is matched, return match_all
-        return ['match_all' => new stdClass()];
-    }
-
-    /** @phpstan-ignore missingType.iterableValue, missingType.iterableValue, missingType.iterableValue */
-    private function buildSimpleFilter(array $filter, array $mapping): array
-    {
-        $field      = $filter['field'];
-        $operator   = $filter['operator'];
-        $value      = $filter['value'] ?? null;
-        $ignoreCase = $filter['ignoreCase'] ?? true;
-        $not        = $filter['not'] ?? false;
-
-        // Get the ElasticSearch field type and nested path from mapping if available
-        $fieldInfo  = $this->getFieldInfo($field, $mapping);
-        $fieldType  = $fieldInfo['type'];
-        $nestedPath = $fieldInfo['nestedPath'];
-
-        $query = $this->buildElasticQueryForOperator($field, $operator, $value, $ignoreCase, $fieldType);
-
-        // Handle negation
-        if ($not) {
-            $query = ['bool' => ['must_not' => [$query]]];
-        }
-
-        // Wrap in nested query if field is in a nested object
-        if ($nestedPath !== null) {
-            $query = ['nested' => ['path' => $nestedPath, 'query' => $query]];
-        }
-
-        return $query;
-    }
-
-    /** @phpstan-ignore missingType.iterableValue, missingType.iterableValue, missingType.iterableValue */
-    private function buildComplexFilter(array $filter, array $mapping): array
-    {
-        $logic   = $filter['logic'] ?? 'and';
-        $filters = $filter['filters'] ?? [];
-        $not     = $filter['not'] ?? false;
-
-        if (empty($filters)) {
-            return ['match_all' => new stdClass()];
-        }
-
-        // Group filters by nested path to optimize nested queries
-        $nestedGroups   = [];
-        $regularQueries = [];
-
-        foreach ($filters as $subFilter) {
-            $nestedPath = $this->getFilterNestedPath($subFilter, $mapping);
-
-            if ($nestedPath !== null) {
-                // Group nested filters by their path
-                if (! isset($nestedGroups[$nestedPath])) {
-                    $nestedGroups[$nestedPath] = [];
-                }
-
-                $nestedGroups[$nestedPath][] = $subFilter;
-            } else {
-                // Regular (non-nested) filter
-                $subQuery = $this->convertFilterToElasticQuery($subFilter, $mapping);
-                if (! empty($subQuery)) {
-                    $regularQueries[] = $subQuery;
-                }
-            }
-        }
-
-        // Build nested queries for each nested path
-        foreach ($nestedGroups as $nestedPath => $nestedFilters) {
-            if (count($nestedFilters) === 1) {
-                // Single nested filter
-                $nestedQuery = $this->convertFilterToElasticQuery($nestedFilters[0], $mapping);
-            } else {
-                // Multiple nested filters - combine them
-                $nestedSubQueries = [];
-                foreach ($nestedFilters as $nestedFilter) {
-                    // Build query without nested wrapper (will be added later)
-                    if (isset($nestedFilter['field'])) {
-                        $field          = $nestedFilter['field'];
-                        $operator       = $nestedFilter['operator'];
-                        $value          = $nestedFilter['value'] ?? null;
-                        $ignoreCase     = $nestedFilter['ignoreCase'] ?? true;
-                        $fieldInfo      = $this->getFieldInfo($field, $mapping);
-                        $nestedSubQuery = $this->buildElasticQueryForOperator($field, $operator, $value, $ignoreCase, $fieldInfo['type']);
-
-                        if ($nestedFilter['not'] ?? false) {
-                            $nestedSubQuery = ['bool' => ['must_not' => [$nestedSubQuery]]];
-                        }
-
-                        $nestedSubQueries[] = $nestedSubQuery;
-                    } else {
-                        // Recursive nested filter - handle without nested wrapper initially
-                        $nestedSubQuery     = $this->buildComplexFilterWithoutNesting($nestedFilter, $mapping);
-                        $nestedSubQueries[] = $nestedSubQuery;
-                    }
-                }
-
-                // Combine nested queries
-                if ($logic === 'or') {
-                    $nestedQuery = [
-                        'nested' => [
-                            'path' => $nestedPath,
-                            'query' => ['bool' => ['should' => $nestedSubQueries, 'minimum_should_match' => 1]],
-                        ],
-                    ];
-                } else {
-                    $nestedQuery = [
-                        'nested' => [
-                            'path' => $nestedPath,
-                            'query' => ['bool' => ['must' => $nestedSubQueries]],
-                        ],
-                    ];
-                }
-            }
-
-            $regularQueries[] = $nestedQuery;
-        }
-
-        if (empty($regularQueries)) {
-            return ['match_all' => new stdClass()];
-        }
-
-        if (count($regularQueries) === 1) {
-            $query = $regularQueries[0];
-        } else {
-            // Combine queries based on logic
-            if ($logic === 'or') {
-                $query = ['bool' => ['should' => $regularQueries, 'minimum_should_match' => 1]];
-            } else { // 'and' or default
-                $query = ['bool' => ['must' => $regularQueries]];
-            }
-        }
-
-        // Handle negation
-        if ($not) {
-            $query = ['bool' => ['must_not' => [$query]]];
-        }
-
-        return $query;
-    }
-
-    /** @phpstan-ignore missingType.iterableValue, missingType.iterableValue, missingType.iterableValue */
-    private function buildComplexFilterWithoutNesting(array $filter, array $mapping): array
-    {
-        $logic   = $filter['logic'] ?? 'and';
-        $filters = $filter['filters'] ?? [];
-
-        if (empty($filters)) {
-            return ['match_all' => new stdClass()];
-        }
-
-        $subQueries = [];
-        foreach ($filters as $subFilter) {
-            if (isset($subFilter['field'])) {
-                $field      = $subFilter['field'];
-                $operator   = $subFilter['operator'];
-                $value      = $subFilter['value'] ?? null;
-                $ignoreCase = $subFilter['ignoreCase'] ?? true;
-                $fieldInfo  = $this->getFieldInfo($field, $mapping);
-                $subQuery   = $this->buildElasticQueryForOperator($field, $operator, $value, $ignoreCase, $fieldInfo['type']);
-
-                if ($subFilter['not'] ?? false) {
-                    $subQuery = ['bool' => ['must_not' => [$subQuery]]];
-                }
-
-                $subQueries[] = $subQuery;
-            } else {
-                $subQuery     = $this->buildComplexFilterWithoutNesting($subFilter, $mapping);
-                $subQueries[] = $subQuery;
-            }
-        }
-
-        if (empty($subQueries)) {
-            return ['match_all' => new stdClass()];
-        }
-
-        if (count($subQueries) === 1) {
-            return $subQueries[0];
-        }
-
-        // Combine queries based on logic
-        if ($logic === 'or') {
-            return ['bool' => ['should' => $subQueries, 'minimum_should_match' => 1]];
-        }
-
-        return ['bool' => ['must' => $subQueries]];
-    }
-
-    /** @phpstan-ignore missingType.iterableValue, missingType.iterableValue */
-    private function getFilterNestedPath(array $filter, array $mapping): string|null
-    {
-        // Check if this is a simple filter with a field
-        if (isset($filter['field'])) {
-            $fieldInfo = $this->getFieldInfo($filter['field'], $mapping);
-
-            return $fieldInfo['nestedPath'];
-        }
-
-        // Check if this is a complex filter - get nested path from first field found
-        if (isset($filter['filters']) && is_array($filter['filters'])) {
-            foreach ($filter['filters'] as $subFilter) {
-                $nestedPath = $this->getFilterNestedPath($subFilter, $mapping);
-                if ($nestedPath !== null) {
-                    return $nestedPath;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /** @phpstan-ignore missingType.iterableValue */
-    private function buildElasticQueryForOperator(string $field, string $operator, mixed $value, bool $ignoreCase, string|null $fieldType): array
-    {
-        switch ($operator) {
-            case FilterExpression::OP_EQ:
-                if ($ignoreCase && $fieldType !== 'keyword') {
-                    return ['match' => [$field => ['query' => $value, 'operator' => 'and']]];
-                }
-
-                return ['term' => [$field => $value]];
-
-            case FilterExpression::OP_NEQ:
-                $termQuery = $ignoreCase && $fieldType !== 'keyword'
-                    ? ['match' => [$field => ['query' => $value, 'operator' => 'and']]]
-                    : ['term' => [$field => $value]];
-
-                return ['bool' => ['must_not' => [$termQuery]]];
-
-            case FilterExpression::OP_IS_NULL:
-                return ['bool' => ['must_not' => [['exists' => ['field' => $field]]]]];
-
-            case FilterExpression::OP_IS_NOT_NULL:
-                return ['exists' => ['field' => $field]];
-
-            case FilterExpression::OP_LT:
-                return ['range' => [$field => ['lt' => $value]]];
-
-            case FilterExpression::OP_LTE:
-                return ['range' => [$field => ['lte' => $value]]];
-
-            case FilterExpression::OP_GT:
-                return ['range' => [$field => ['gt' => $value]]];
-
-            case FilterExpression::OP_GTE:
-                return ['range' => [$field => ['gte' => $value]]];
-
-            case FilterExpression::OP_STARTS_WITH:
-                if ($ignoreCase) {
-                    return ['wildcard' => [$field => ['value' => mb_strtolower($value) . '*', 'case_insensitive' => true]]];
-                }
-
-                return ['prefix' => [$field => $value]];
-
-            case FilterExpression::OP_DOES_NOT_START_WITH:
-                $prefixQuery = $ignoreCase
-                    ? ['wildcard' => [$field => ['value' => mb_strtolower($value) . '*', 'case_insensitive' => true]]]
-                    : ['prefix' => [$field => $value]];
-
-                return ['bool' => ['must_not' => [$prefixQuery]]];
-
-            case FilterExpression::OP_ENDS_WITH:
-                $pattern       = $ignoreCase ? '*' . mb_strtolower($value) : '*' . $value;
-                $wildcardQuery = ['wildcard' => [$field => $pattern]];
-                if ($ignoreCase) {
-                    $wildcardQuery['wildcard'][$field] = ['value' => $pattern, 'case_insensitive' => true];
-                }
-
-                return $wildcardQuery;
-
-            case FilterExpression::OP_DOES_NOT_END_WITH:
-                $pattern       = $ignoreCase ? '*' . mb_strtolower($value) : '*' . $value;
-                $wildcardQuery = ['wildcard' => [$field => $pattern]];
-                if ($ignoreCase) {
-                    $wildcardQuery['wildcard'][$field] = ['value' => $pattern, 'case_insensitive' => true];
-                }
-
-                return ['bool' => ['must_not' => [$wildcardQuery]]];
-
-            case FilterExpression::OP_CONTAINS:
-                $pattern       = $ignoreCase ? '*' . mb_strtolower($value) . '*' : '*' . $value . '*';
-                $wildcardQuery = ['wildcard' => [$field => $pattern]];
-                if ($ignoreCase) {
-                    $wildcardQuery['wildcard'][$field] = ['value' => $pattern, 'case_insensitive' => true];
-                }
-
-                return $wildcardQuery;
-
-            case FilterExpression::OP_DOES_NOT_CONTAIN:
-                $pattern       = $ignoreCase ? '*' . mb_strtolower($value) . '*' : '*' . $value . '*';
-                $wildcardQuery = ['wildcard' => [$field => $pattern]];
-                if ($ignoreCase) {
-                    $wildcardQuery['wildcard'][$field] = ['value' => $pattern, 'case_insensitive' => true];
-                }
-
-                return ['bool' => ['must_not' => [$wildcardQuery]]];
-
-            case FilterExpression::OP_IS_EMPTY:
-                return [
-                    'bool' => [
-                        'should' => [
-                            ['bool' => ['must_not' => [['exists' => ['field' => $field]]]]],
-                            ['term' => [$field => '']],
-                        ],
-                        'minimum_should_match' => 1,
-                    ],
-                ];
-
-            case FilterExpression::OP_IS_NOT_EMPTY:
-                return [
-                    'bool' => [
-                        'must' => [['exists' => ['field' => $field]]],
-                        'must_not' => [['term' => [$field => '']]],
-                    ],
-                ];
-
-            case FilterExpression::OP_IN_LIST:
-                if (! is_array($value)) {
-                    $value = [$value];
-                }
-
-                // For text fields, use bool/should with match queries instead of terms
-                // because terms query doesn't work with analyzed text fields
-                if ($fieldType === 'text') {
-                    $shouldQueries = [];
-                    foreach ($value as $item) {
-                        if ($ignoreCase) {
-                            $shouldQueries[] = ['match' => [$field => ['query' => $item, 'operator' => 'and']]];
-                        } else {
-                            // For case-sensitive, try .keyword subfield first, then fallback to match
-                            $shouldQueries[] = ['match' => [$field => ['query' => $item, 'operator' => 'and']]];
-                        }
-                    }
-
-                    return ['bool' => ['should' => $shouldQueries, 'minimum_should_match' => 1]];
-                }
-
-                // For keyword, numeric, and other non-analyzed fields, use terms query
-                return ['terms' => [$field => $value]];
-
-            case FilterExpression::OP_NOT_IN_LIST:
-                if (! is_array($value)) {
-                    $value = [$value];
-                }
-
-                // For text fields, use bool/must_not with should/match queries
-                if ($fieldType === 'text') {
-                    $shouldQueries = [];
-                    foreach ($value as $item) {
-                        if ($ignoreCase) {
-                            $shouldQueries[] = ['match' => [$field => ['query' => $item, 'operator' => 'and']]];
-                        } else {
-                            $shouldQueries[] = ['match' => [$field => ['query' => $item, 'operator' => 'and']]];
-                        }
-                    }
-
-                    return ['bool' => ['must_not' => [['bool' => ['should' => $shouldQueries, 'minimum_should_match' => 1]]]]];
-                }
-
-                // For keyword, numeric, and other non-analyzed fields, use terms query
-                return ['bool' => ['must_not' => [['terms' => [$field => $value]]]]];
-
-            default:
-                // Fallback to term query for unknown operators
-                return ['term' => [$field => $value]];
-        }
-    }
-
-    /** @phpstan-ignore missingType.iterableValue, missingType.iterableValue */
-    private function getFieldInfo(string $field, array $mapping): array
-    {
-        // Try to get field info from flattened ElasticSearch mapping
-        if (isset($mapping[$field])) {
-            return [
-                'type' => $mapping[$field]['type'] ?? null,
-                'nestedPath' => $mapping[$field]['nestedPath'] ?? null,
-            ];
-        }
-
-        // Fallback: try to find in complex mapping structure
-        $fieldParts     = explode('.', $field);
-        $currentMapping = $mapping;
-
-        foreach ($fieldParts as $part) {
-            if (! isset($currentMapping[$part])) {
-                break;
-            }
-
-            $currentMapping = $currentMapping[$part];
-            if (isset($currentMapping['type'])) {
-                return [
-                    'type' => $currentMapping['type'],
-                    'nestedPath' => $currentMapping['nestedPath'] ?? null,
-                ];
-            }
-
-            if (! isset($currentMapping['properties'])) {
-                continue;
-            }
-
-            $currentMapping = $currentMapping['properties'];
-        }
-
-        return ['type' => null, 'nestedPath' => null];
-    }
-
-    private function escapeQueryString(string $value): string
-    {
-        return $value;
     }
 
     #[Override]
