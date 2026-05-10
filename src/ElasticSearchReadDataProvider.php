@@ -19,7 +19,6 @@ trait ElasticSearchReadDataProvider
     #[Override]
     public function withFullTextSearch(string $term): static
     {
-        /** @phpstan-var static<T> $clone */
         $clone = clone $this;
         /** @phpstan-var DataSource<T> $ds */
         $ds                = $clone->dataSource();
@@ -31,7 +30,6 @@ trait ElasticSearchReadDataProvider
     #[Override]
     public function withoutFullTextSearch(): static
     {
-        /** @phpstan-var static<T> $clone */
         $clone = clone $this;
         /** @phpstan-var DataSource<T> $ds */
         $ds                = $clone->dataSource();
@@ -43,7 +41,6 @@ trait ElasticSearchReadDataProvider
     #[Override]
     public function withRawQuerySearch(string $query): static
     {
-        /** @phpstan-var static<T> $clone */
         $clone = clone $this;
         /** @phpstan-var DataSource<T> $ds */
         $ds                = $clone->dataSource();
@@ -55,7 +52,6 @@ trait ElasticSearchReadDataProvider
     #[Override]
     public function withoutRawQuerySearch(): static
     {
-        /** @phpstan-var static<T> $clone */
         $clone = clone $this;
         /** @phpstan-var DataSource<T> $ds */
         $ds                = $clone->dataSource();

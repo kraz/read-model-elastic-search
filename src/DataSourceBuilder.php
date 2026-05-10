@@ -29,7 +29,7 @@ class DataSourceBuilder implements ReadDataProviderCompositionInterface, ReadDat
     /** @use ReadDataProviderBuilder<T> */
     use ReadDataProviderBuilder;
 
-    private mixed $data;
+    private mixed $data                                = null;
     private string|null $fullTextSearchTerm            = null;
     private string|null $rawQuerySearchPayload         = null;
     private QueryStrategyInterface|null $queryStrategy = null;

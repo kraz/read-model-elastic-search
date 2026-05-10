@@ -16,6 +16,7 @@ use function count;
 use function explode;
 use function in_array;
 use function is_array;
+use function is_string;
 use function mb_strtolower;
 
 final class QueryExpressionHelper
@@ -62,7 +63,7 @@ final class QueryExpressionHelper
                 $filterArray = FilterExpression::applyFieldMapping($filterArray, $fieldMapping);
             }
 
-            $filterArray = FilterExpression::walkFieldValues($filterArray, fn ($field, $value) => $this->escapeQueryString($value));
+            $filterArray = FilterExpression::walkFieldValues($filterArray, fn ($field, $value) => is_string($value) ? $this->escapeQueryString($value) : $value);
             $filterQuery = $this->buildElasticQuery($filterArray, $this->indexMapping);
         }
 
