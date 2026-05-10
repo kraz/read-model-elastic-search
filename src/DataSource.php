@@ -18,7 +18,6 @@ use Kraz\ReadModel\ReadDataProviderInterface;
 use Kraz\ReadModel\ReadDataProviderPayload;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModel\ReadResponse;
-use Kraz\ReadModel\Tools\CollectionUtils;
 use Kraz\ReadModelElasticSearch\Query\QueryExpressionProvider;
 use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategy9x;
 use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategyInterface;
@@ -35,7 +34,6 @@ use function array_filter;
 use function array_values;
 use function class_exists;
 use function count;
-use function iterator_to_array;
 use function json_decode;
 use function parse_str;
 use function sprintf;
@@ -85,24 +83,6 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
         $this->payload = $payload;
 
         return $this->payload;
-    }
-
-    private function getWrappedQueryExpression(): QueryExpression|null
-    {
-        if (count($this->queryExpressions) === 0) {
-            return null;
-        }
-
-        if (count($this->queryExpressions) === 1) {
-            return clone $this->queryExpressions[0];
-        }
-
-        $base = QueryExpression::create();
-        foreach ($this->queryExpressions as $item) {
-            $base = $base->wrap($item);
-        }
-
-        return $base;
     }
 
     protected function createDefaultQueryExpressionProvider(ReadModelDescriptorFactoryInterface $factory): QueryExpressionProviderInterface
@@ -204,18 +184,14 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
     }
 
     #[Override]
-    public function isEmpty(): bool
-    {
-        $this->assertNoSpecifications();
-
-        return $this->totalCount() === 0;
-    }
-
-    #[Override]
     public function getIterator(): Traversable
     {
         $specifications = $this->specifications;
         $hasSpecs       = count($specifications) > 0;
+
+        if ($hasSpecs && $this->limit === null) {
+            throw new LogicException('Specifications can only be used with a limit. Call withLimit() before using withSpecification().');
+        }
 
         if ($hasSpecs && $this->limit !== null) {
             [$limitValue, $offsetValue] = $this->limit;
@@ -229,12 +205,8 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
             return;
         }
 
-        if ($hasSpecs) {
-            $items = new ArrayIterator($this->filteredItems());
-        } else {
-            $paginator = $this->paginator();
-            $items     = $paginator?->getIterator() ?? new ArrayIterator($this->filteredItems());
-        }
+        $paginator = $this->paginator();
+        $items     = $paginator?->getIterator() ?? new ArrayIterator($this->filteredItems());
 
         $itemNormalizer = $this->itemNormalizer;
         if ($itemNormalizer !== null) {
@@ -246,37 +218,6 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
         }
 
         yield from $items;
-    }
-
-    #[Override]
-    public function data(): array
-    {
-        $data = iterator_to_array($this->getIterator());
-        if ($this->isValue()) {
-            $rootIdentifier = $this->getOrCreateQueryExpressionProvider()->requireSingleRootIdentifier();
-            $values         = $this->collectInputValues();
-
-            return CollectionUtils::sortByIndex($data, $rootIdentifier, $values);
-        }
-
-        return $data;
-    }
-
-    #[Override]
-    public function getResult(): array|ReadResponse
-    {
-        $this->assertNoSpecifications();
-
-        $data = $this->data();
-
-        if ($this->isValue()) {
-            return $data;
-        }
-
-        $page  = $this->isPaginated() ? ($this->paginator()?->getCurrentPage() ?? 1) : 1;
-        $total = $this->totalCount();
-
-        return ReadResponse::create($data, $page, $total);
     }
 
     #[Override]
@@ -294,12 +235,9 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
 
         [$page, $itemsPerPage] = $this->pagination;
         $payload               = $this->getPayload();
-        $iterator              = count($this->specifications) > 0
-            ? new ArrayIterator($this->filteredItems())
-            : $payload->getIterator();
 
         $this->paginatorInstance = new InMemoryPaginator(
-            $iterator,
+            $payload->getIterator(),
             $payload->getTotalItems(),
             $payload->getCurrentPage() ?: $page,
             $itemsPerPage,
@@ -352,13 +290,6 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
         $clone->rawQuerySearchPayload = null;
 
         return $clone;
-    }
-
-    private function assertNoSpecifications(): void
-    {
-        if (count($this->specifications) > 0) {
-            throw new LogicException('Cannot use this method when specifications are set. Use getIterator() or data() instead.');
-        }
     }
 
     #[Override]
