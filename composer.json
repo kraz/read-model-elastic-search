@@ -17,8 +17,8 @@
     "require": {
         "php": ">=8.4",
         "ext-mbstring": "*",
-        "kraz/elastic-search-client": "dev-main",
-        "kraz/read-model": "dev-main"
+        "kraz/elastic-search-client": "^1.0",
+        "kraz/read-model": "^1.0"
     },
     "require-dev": {
         "doctrine/coding-standard": "^14.0",
