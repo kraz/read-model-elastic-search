@@ -18,8 +18,7 @@
         "php": ">=8.4",
         "ext-mbstring": "*",
         "kraz/elastic-search-client": "dev-main",
-        "kraz/read-model": "dev-main",
-        "webmozart/assert": "^2.3"
+        "kraz/read-model": "dev-main"
     },
     "require-dev": {
         "doctrine/coding-standard": "^14.0",

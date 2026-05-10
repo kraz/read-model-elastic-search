@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelElasticSearch;
 
+use InvalidArgumentException;
 use Kraz\ElasticSearchClient\ElasticSearchClientInterface;
 use Kraz\ElasticSearchClient\ElasticSearchResponse;
 use Override;
 use stdClass;
-use Webmozart\Assert\Assert;
 
 use function array_column;
 use function ceil;
 use function is_array;
+use function is_int;
 
 abstract class ElasticSearchClientGateway implements ElasticSearchClientInterface
 {
@@ -56,10 +57,14 @@ abstract class ElasticSearchClientGateway implements ElasticSearchClientInterfac
         $result   = $response->getResult();
 
         $size = $query['size'] ?? 0;
-        Assert::integer($size);
+        if (! is_int($size)) {
+            throw new InvalidArgumentException('Expected query[size] to be an integer.');
+        }
 
         $from = $query['from'] ?? 0;
-        Assert::integer($from);
+        if (! is_int($from)) {
+            throw new InvalidArgumentException('Expected query[from] to be an integer.');
+        }
 
         $total = $result['hits']['total'] ?? 0;
         if (is_array($total)) {
@@ -67,11 +72,15 @@ abstract class ElasticSearchClientGateway implements ElasticSearchClientInterfac
             $total = $total['value'] ?? 0;
         }
 
-        Assert::integer($total);
+        if (! is_int($total)) {
+            throw new InvalidArgumentException('Expected hits.total to be an integer.');
+        }
 
         /** @phpstan-var array<int, array<string, mixed>>|null $hits */
         $hits = $result['hits']['hits'] ?? null;
-        Assert::isArray($hits);
+        if (! is_array($hits)) {
+            throw new InvalidArgumentException('Expected hits.hits to be an array.');
+        }
 
         $payload = [
             'data' => array_column($hits, '_source'),
@@ -81,7 +90,9 @@ abstract class ElasticSearchClientGateway implements ElasticSearchClientInterfac
 
         if ($responseClassName !== null) {
             $searchResponse = $this->denormalizer->denormalize($payload, $responseClassName);
-            Assert::isInstanceOf($searchResponse, $responseClassName);
+            if (! ($searchResponse instanceof $responseClassName)) {
+                throw new InvalidArgumentException('Expected denormalized response to be an instance of ' . $responseClassName . '.');
+            }
         } else {
             $searchResponse = $payload;
         }
