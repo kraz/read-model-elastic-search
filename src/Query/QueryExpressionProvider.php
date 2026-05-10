@@ -9,7 +9,6 @@ use Kraz\ReadModel\Query\QueryExpressionHelper as BaseQueryExpressionHelper;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\ReadModelDescriptor;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
-use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategy9x;
 use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategyInterface;
 use Override;
 
@@ -37,7 +36,7 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
 
     public function __construct(
         private readonly ReadModelDescriptorFactoryInterface $descriptorFactory,
-        private readonly QueryStrategyInterface $queryStrategy = new QueryStrategy9x(),
+        private readonly QueryStrategyInterface $queryStrategy,
     ) {
     }
 
@@ -87,6 +86,11 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
     public function requireSingleRootIdentifier(): string
     {
         return BaseQueryExpressionHelper::requireSingleValueRootIdentifier($this->rootIdentifier);
+    }
+
+    public function getQueryStrategy(): QueryStrategyInterface
+    {
+        return $this->queryStrategy;
     }
 
     /**

@@ -6,9 +6,13 @@ namespace Kraz\ReadModelElasticSearch;
 
 use InvalidArgumentException;
 use Kraz\ElasticSearchClient\ElasticSearchClientInterface;
+use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\ReadDataProviderBuilder;
 use Kraz\ReadModel\ReadDataProviderBuilderInterface;
 use Kraz\ReadModel\ReadDataProviderCompositionInterface;
+use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
+use Kraz\ReadModelElasticSearch\Query\QueryExpressionProvider;
+use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategy9x;
 use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategyInterface;
 use LogicException;
 use Override;
@@ -29,6 +33,13 @@ class DataSourceBuilder implements ReadDataProviderCompositionInterface, ReadDat
     private string|null $fullTextSearchTerm            = null;
     private string|null $rawQuerySearchPayload         = null;
     private QueryStrategyInterface|null $queryStrategy = null;
+
+    protected function createDefaultQueryExpressionProvider(ReadModelDescriptorFactoryInterface $factory): QueryExpressionProviderInterface
+    {
+        $this->queryStrategy ??= new QueryStrategy9x();
+
+        return new QueryExpressionProvider($factory, $this->queryStrategy);
+    }
 
     /**
      * @phpstan-param ElasticSearchClientInterface&ElasticSearchReadClientInterface<J> $data
@@ -103,7 +114,7 @@ class DataSourceBuilder implements ReadDataProviderCompositionInterface, ReadDat
      *
      * @phpstan-template J of object|array<string, mixed> = array<string, mixed>
      */
-    public function create(mixed $data = null, string $identifierField = 'id', string|null $index = null): DataSource
+    public function create(mixed $data = null, string|null $index = null): DataSource
     {
         $data ??= $this->data;
         if ($data === null) {
@@ -116,8 +127,8 @@ class DataSourceBuilder implements ReadDataProviderCompositionInterface, ReadDat
 
         $args = [
             'client' => $data,
-            'identifierField' => $identifierField,
             'index' => $index,
+            'queryExpressionProvider' => $this->queryExpressionProvider,
         ];
         if ($this->queryStrategy !== null) {
             $args['queryStrategy'] = $this->queryStrategy;

@@ -63,10 +63,11 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
     /** @phpstan-param ElasticSearchClientInterface&ElasticSearchReadClientInterface<T> $client */
     public function __construct(
         private readonly ElasticSearchClientInterface&ElasticSearchReadClientInterface $client,
-        private readonly string $identifierField = 'id',
         private readonly string|null $index = null,
+        QueryExpressionProviderInterface|null $queryExpressionProvider = null,
         private readonly QueryStrategyInterface $queryStrategy = new QueryStrategy9x(),
     ) {
+        $this->queryExpressionProvider = $queryExpressionProvider;
     }
 
     /** @phpstan-return ReadDataProviderPayload<T> */
@@ -106,10 +107,7 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
 
     protected function createDefaultQueryExpressionProvider(ReadModelDescriptorFactoryInterface $factory): QueryExpressionProviderInterface
     {
-        $provider = new QueryExpressionProvider($factory, $this->queryStrategy);
-        $provider->setRootIdentifier($this->identifierField);
-
-        return $provider;
+        return new QueryExpressionProvider($factory, $this->queryStrategy);
     }
 
     /** @phpstan-return array<string, mixed> */
