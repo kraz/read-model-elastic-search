@@ -21,14 +21,17 @@ final class QueryExpressionHelperTest extends TestCase
     {
         $qry = QueryExpression::create()->andWhere($filter);
 
-        return QueryExpressionHelper::create($indexMapping, new QueryStrategy9x())
-            ->apply($qry, null, 'id', [], QueryExpressionProviderInterface::INCLUDE_DATA_ALL)['query'];
+        return QueryExpressionHelper::create($indexMapping, new QueryStrategy9x(), ['root_identifier' => 'id'])
+            ->apply($qry, null, QueryExpressionProviderInterface::INCLUDE_DATA_ALL)['query'];
     }
 
-    /** @param array<string, mixed> $indexMapping */
-    private function helper(array $indexMapping = []): QueryExpressionHelper
+    /**
+     * @param array<string, mixed> $indexMapping
+     * @param array<string, mixed> $options
+     */
+    private function helper(array $indexMapping = [], array $options = []): QueryExpressionHelper
     {
-        return QueryExpressionHelper::create($indexMapping, new QueryStrategy9x());
+        return QueryExpressionHelper::create($indexMapping, new QueryStrategy9x(), $options);
     }
 
     // -------------------------------------------------------------------------
@@ -40,8 +43,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper()->apply(
             QueryExpression::create(),
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         );
 
@@ -367,8 +368,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper()->apply(
             $qry,
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         )['query'];
 
@@ -392,8 +391,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper()->apply(
             $qry,
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         )['query'];
 
@@ -443,8 +440,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper($indexMapping)->apply(
             $qry,
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         )['query'];
 
@@ -472,11 +467,9 @@ final class QueryExpressionHelperTest extends TestCase
         $filter = FilterExpression::create()->equalTo('displayName', 'Alice', false);
         $qry    = QueryExpression::create()->andWhere($filter);
 
-        $result = $this->helper()->apply(
+        $result = $this->helper(options: ['field_map' => ['displayName' => 'name']])->apply(
             $qry,
             null,
-            'id',
-            ['displayName' => 'name'],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         )['query'];
 
@@ -493,8 +486,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper(['name' => ['type' => 'text']])->apply(
             $qry,
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         );
 
@@ -509,8 +500,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper(['createdAt' => ['type' => 'date']])->apply(
             $qry,
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         );
 
@@ -524,8 +513,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result       = $this->helper($indexMapping)->apply(
             $qry,
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         );
 
@@ -545,8 +532,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper()->apply(
             $qry,
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_FILTER,
         );
 
@@ -562,8 +547,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper()->apply(
             QueryExpression::create(),
             'hello world',
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         )['query'];
 
@@ -580,8 +563,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper()->apply(
             $qry,
             'foo bar',
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         )['query'];
 
@@ -600,11 +581,9 @@ final class QueryExpressionHelperTest extends TestCase
     public function testValuesModeBuildsTermsQueryOnIdentifierField(): void
     {
         $qry    = QueryExpression::create()->withValues(['123', '456']);
-        $result = $this->helper()->apply(
+        $result = $this->helper(options: ['root_identifier' => 'orderId'])->apply(
             $qry,
             null,
-            'orderId',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         )['query'];
 
@@ -614,11 +593,9 @@ final class QueryExpressionHelperTest extends TestCase
     public function testValuesModeAppliesFieldMappingToIdentifier(): void
     {
         $qry    = QueryExpression::create()->withValues(['abc', 'def']);
-        $result = $this->helper()->apply(
+        $result = $this->helper(options: ['root_identifier' => 'uuid', 'field_map' => ['uuid' => 'id']])->apply(
             $qry,
             null,
-            'uuid',
-            ['uuid' => 'id'],
             QueryExpressionProviderInterface::INCLUDE_DATA_ALL,
         )['query'];
 
@@ -635,8 +612,6 @@ final class QueryExpressionHelperTest extends TestCase
         $result = $this->helper()->apply(
             $qry,
             null,
-            'id',
-            [],
             QueryExpressionProviderInterface::INCLUDE_DATA_FILTER,
         )['query'];
 
@@ -652,7 +627,7 @@ final class QueryExpressionHelperTest extends TestCase
         $qry    = QueryExpression::create()
             ->andWhere(FilterExpression::create()->equalTo('status', 'ok', false))
             ->sortBy('name');
-        $result = $this->helper()->apply($qry, null, 'id', [], QueryExpressionProviderInterface::INCLUDE_DATA_FILTER);
+        $result = $this->helper()->apply($qry, null, QueryExpressionProviderInterface::INCLUDE_DATA_FILTER);
 
         self::assertArrayNotHasKey('sort', $result);
         self::assertSame(['term' => ['status' => 'ok']], $result['query']);
@@ -663,7 +638,7 @@ final class QueryExpressionHelperTest extends TestCase
         $qry    = QueryExpression::create()
             ->andWhere(FilterExpression::create()->equalTo('status', 'ok', false))
             ->sortBy('name');
-        $result = $this->helper()->apply($qry, null, 'id', [], QueryExpressionProviderInterface::INCLUDE_DATA_SORT);
+        $result = $this->helper()->apply($qry, null, QueryExpressionProviderInterface::INCLUDE_DATA_SORT);
 
         self::assertInstanceOf(stdClass::class, $result['query']['match_all']);
         self::assertArrayHasKey('sort', $result);

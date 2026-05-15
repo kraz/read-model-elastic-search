@@ -7,6 +7,7 @@ namespace Kraz\ReadModelElasticSearch;
 use ArrayIterator;
 use InvalidArgumentException;
 use Kraz\ElasticSearchClient\ElasticSearchClientInterface;
+use Kraz\ReadModel\Pagination\Cursor\CursorPaginatorInterface;
 use Kraz\ReadModel\Pagination\InMemoryPaginator;
 use Kraz\ReadModel\Pagination\PaginatorInterface;
 use Kraz\ReadModel\Query\QueryExpression;
@@ -341,5 +342,15 @@ class DataSource implements ReadDataProviderInterface, FullTextSearchReadModelIn
         }
 
         throw new RuntimeException(sprintf('Unsupported request type: %s', $request::class));
+    }
+
+    public function isCursored(): bool
+    {
+        return false;
+    }
+
+    public function cursorPaginator(): CursorPaginatorInterface|null
+    {
+        return null;
     }
 }

@@ -19,42 +19,73 @@ use function is_array;
 use function is_string;
 use function mb_strtolower;
 
+/**
+ * @phpstan-type QueryExpressionHelperOptions = array{
+ *     root_identifier?: string|string[],
+ *     field_map?: array<string, string>,
+ * }
+ */
 final class QueryExpressionHelper
 {
-    /** @phpstan-param array<string, mixed> $indexMapping */
+    /**
+     * @phpstan-param array<string, mixed> $indexMapping
+     * @phpstan-param QueryExpressionHelperOptions $options
+     */
     private function __construct(
         private readonly array $indexMapping,
         private readonly QueryStrategyInterface $queryStrategy,
+        private readonly array $options,
     ) {
     }
 
-    /** @phpstan-param array<string, mixed> $indexMapping */
-    public static function create(array $indexMapping, QueryStrategyInterface $queryStrategy): self
+    /**
+     * @phpstan-param array<string, mixed> $indexMapping
+     * @phpstan-param QueryExpressionHelperOptions $options
+     */
+    public static function create(array $indexMapping, QueryStrategyInterface $queryStrategy, array $options): self
     {
-        return new self($indexMapping, $queryStrategy);
+        return new self($indexMapping, $queryStrategy, $options);
+    }
+
+    /** @phpstan-return array<string, string> */
+    private function getFieldMapping(): array
+    {
+        return $this->options['field_map'] ?? [];
+    }
+
+    private function getRootIdentifier(): string
+    {
+        $identifierField = $this->options['root_identifier'] ?? 'id';
+
+        return is_string($identifierField) ? $identifierField : ($identifierField[0] ?? 'id');
+    }
+
+    public function mapField(string $field): string
+    {
+        $fieldMapping = $this->getFieldMapping();
+
+        return $fieldMapping[$field] ?? $field;
     }
 
     /**
      * Builds Elasticsearch params (query and sort) from a QueryExpression.
      * Pagination params (from/size) are not included — the caller adds them.
      *
-     * @phpstan-param array<string, string> $fieldMapping
-     *
      * @phpstan-return array<string, mixed>
      */
     public function apply(
         QueryExpression $queryExpression,
         string|null $fullTextSearchTerm,
-        string $identifierField,
-        array $fieldMapping,
         int $includeData,
     ): array {
         $includeFilter = (bool) ($includeData & QueryExpressionProviderInterface::INCLUDE_DATA_FILTER);
         $includeSort   = (bool) ($includeData & QueryExpressionProviderInterface::INCLUDE_DATA_SORT);
         $includeValues = (bool) ($includeData & QueryExpressionProviderInterface::INCLUDE_DATA_VALUES);
 
-        $params      = [];
-        $filterQuery = null;
+        $params          = [];
+        $filterQuery     = null;
+        $fieldMapping    = $this->getFieldMapping();
+        $identifierField = $this->getRootIdentifier();
 
         $filter = $queryExpression->getFilter();
         if ($includeFilter && $filter !== null && ! $filter->isFilterEmpty()) {

@@ -21,6 +21,8 @@ use function is_string;
  * @phpstan-type QueryExpressionProviderOptions = array{
  *     getIndexMappingFn?: callable(): array<string, mixed>,
  *     fullTextSearchTerm?: string|null,
+ *     root_identifier?: string|string[],
+ *     field_map?: array<string, string>,
  * }
  */
 class QueryExpressionProvider implements QueryExpressionProviderInterface
@@ -94,12 +96,21 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
     }
 
     /**
+     * @phpstan-param array<string, mixed> $data
+     * @phpstan-param QueryExpressionProviderOptions $options
+     */
+    #[Override]
+    public function mapField(string $field, mixed $data = null, ReadModelDescriptor|null $descriptor = null, array $options = []): string
+    {
+        return $this->createHelper($descriptor, $options)->mapField($field);
+    }
+
+    /**
      * Applies a QueryExpression to an Elasticsearch params array.
      *
      * The returned array contains `query` and optionally `sort` — pagination params are not added here.
      *
      * Required option: `getIndexMappingFn` — a callable returning the flattened Elasticsearch mapping.
-     * It is called lazily only when filter, sort, or values are present.
      *
      * Optional options:
      *  - `fullTextSearchTerm` (string|null) — wraps any filter in a full-text search query
@@ -112,6 +123,21 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
     #[Override]
     public function apply(mixed $data, QueryExpression $queryExpression, ReadModelDescriptor|null $descriptor = null, array $options = [], int $includeData = self::INCLUDE_DATA_ALL): array
     {
+        $fullTextSearchTerm = $options['fullTextSearchTerm'] ?? null;
+
+        $hasContent = ($queryExpression->getFilter() !== null && ! $queryExpression->getFilter()->isFilterEmpty())
+            || ($queryExpression->getSort() !== null && ! $queryExpression->getSort()->isSortEmpty())
+            || ($queryExpression->getValues() !== null && count($queryExpression->getValues()) > 0);
+
+        $helper = $this->createHelper($descriptor, $options, $hasContent);
+        $result = $helper->apply($queryExpression, $fullTextSearchTerm, $includeData);
+
+        return [...(is_array($data) ? $data : []), ...$result];
+    }
+
+    /** @phpstan-param QueryExpressionProviderOptions $options */
+    private function createHelper(ReadModelDescriptor|null $descriptor = null, array $options = [], bool $loadIndexMapping = true): QueryExpressionHelper
+    {
         $optDescriptor = $options['read_model_descriptor'] ?? null;
         if ($descriptor === null && is_string($optDescriptor)) {
             $optDescriptor = $this->descriptorFactory->createReadModelDescriptorFrom($optDescriptor);
@@ -121,21 +147,12 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
             $descriptor = $optDescriptor;
         }
 
-        $fieldMapping       = count($this->fieldMapping) > 0 ? $this->fieldMapping : ($descriptor->fieldMap ?? []);
-        $fullTextSearchTerm = $options['fullTextSearchTerm'] ?? null;
-
-        $identifierField = is_string($this->rootIdentifier) ? $this->rootIdentifier : ($this->rootIdentifier[0] ?? 'id');
-
-        $hasContent = ($queryExpression->getFilter() !== null && ! $queryExpression->getFilter()->isFilterEmpty())
-            || ($queryExpression->getSort() !== null && ! $queryExpression->getSort()->isSortEmpty())
-            || ($queryExpression->getValues() !== null && count($queryExpression->getValues()) > 0);
+        $options['field_map']       ??= $descriptor ? $descriptor->fieldMap : $this->fieldMapping;
+        $options['root_identifier'] ??= $this->rootIdentifier;
 
         $getIndexMappingFn = $options['getIndexMappingFn'] ?? null;
-        $indexMapping      = $hasContent && is_callable($getIndexMappingFn) ? $getIndexMappingFn() : [];
+        $indexMapping      = $loadIndexMapping && is_callable($getIndexMappingFn) ? $getIndexMappingFn() : [];
 
-        $helper = QueryExpressionHelper::create($indexMapping, $this->queryStrategy);
-        $result = $helper->apply($queryExpression, $fullTextSearchTerm, $identifierField, $fieldMapping, $includeData);
-
-        return [...(is_array($data) ? $data : []), ...$result];
+        return QueryExpressionHelper::create($indexMapping, $this->queryStrategy, $options);
     }
 }

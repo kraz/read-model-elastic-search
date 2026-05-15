@@ -144,7 +144,7 @@ final class QueryExpressionProviderTest extends TestCase
         self::assertSame(['term' => ['name' => 'Alice']], $result['query']);
     }
 
-    public function testSetFieldMappingHasPriorityOverDescriptorFieldMap(): void
+    public function testDescriptorFieldMapHasPriorityOverSetFieldMapping(): void
     {
         $provider = $this->provider();
         $provider->setFieldMapping(['label' => 'name_from_mapping']);
@@ -158,7 +158,7 @@ final class QueryExpressionProviderTest extends TestCase
             'getIndexMappingFn' => static fn (): array => [],
         ]);
 
-        self::assertSame(['term' => ['name_from_mapping' => 'Alice']], $result['query']);
+        self::assertSame(['term' => ['name_from_descriptor' => 'Alice']], $result['query']);
     }
 
     // -------------------------------------------------------------------------
