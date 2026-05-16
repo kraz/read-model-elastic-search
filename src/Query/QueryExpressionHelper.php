@@ -68,6 +68,54 @@ final class QueryExpressionHelper
     }
 
     /**
+     * Builds Elasticsearch params for a cursor-paginated request.
+     *
+     * Reuses the filter/values logic from {@see self::apply()}, then layers on the
+     * cursor's effective sort (which may be the inverted form for backward traversal)
+     * and the version-specific cursor params from the active {@see QueryStrategyInterface}
+     * (typically `search_after` and `track_total_hits: false`).
+     *
+     * Centralizing this here keeps ES-specific cursor syntax out of the DataSource —
+     * the DataSource only has to know about the abstract cursor concepts (sort, anchor,
+     * window size).
+     *
+     * @phpstan-param list<mixed>|null $searchAfter Sort values from the cursor, in the
+     *                                              same field order as {@see SortExpression::items()}.
+     *                                              Null on the first page (no anchor yet).
+     * @phpstan-param int<1, max>      $size        Number of hits to request — the caller
+     *                                              typically passes `limit + 1` to detect
+     *                                              whether more data exists.
+     *
+     * @phpstan-return array<string, mixed>
+     */
+    public function applyCursor(
+        QueryExpression $queryExpression,
+        string|null $fullTextSearchTerm,
+        SortExpression $orderBySort,
+        array|null $searchAfter,
+        int $size,
+    ): array {
+        // Build filter (and any values-derived query) without the QE sort — the cursor
+        // dictates the order via $orderBySort and must win unconditionally.
+        $params = $this->apply(
+            $queryExpression,
+            $fullTextSearchTerm,
+            QueryExpressionProviderInterface::INCLUDE_DATA_FILTER | QueryExpressionProviderInterface::INCLUDE_DATA_VALUES,
+        );
+
+        $sortArray    = $orderBySort->toArray();
+        $fieldMapping = $this->getFieldMapping();
+        if (count($fieldMapping) > 0) {
+            $sortArray = SortExpression::applyFieldMapping($sortArray, $fieldMapping);
+        }
+
+        $params['sort'] = $this->buildElasticSort($sortArray, $this->indexMapping);
+        $params['size'] = $size;
+
+        return [...$params, ...$this->queryStrategy->buildCursorParams($searchAfter)];
+    }
+
+    /**
      * Builds Elasticsearch params (query and sort) from a QueryExpression.
      * Pagination params (from/size) are not included — the caller adds them.
      *

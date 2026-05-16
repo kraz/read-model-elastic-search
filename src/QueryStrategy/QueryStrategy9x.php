@@ -82,4 +82,21 @@ final class QueryStrategy9x implements QueryStrategyInterface
 
         return (int) $total;
     }
+
+    public function supportsCursorPagination(): bool
+    {
+        return true;
+    }
+
+    public function buildCursorParams(array|null $searchAfter): array
+    {
+        // `track_total_hits: false` keeps cursor pages O(limit) on the ES side — counting
+        // hits across each cursor step would defeat the whole point of keyset pagination.
+        $params = ['track_total_hits' => false];
+        if ($searchAfter !== null) {
+            $params['search_after'] = $searchAfter;
+        }
+
+        return $params;
+    }
 }

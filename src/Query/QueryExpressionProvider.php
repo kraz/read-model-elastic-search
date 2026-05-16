@@ -7,6 +7,7 @@ namespace Kraz\ReadModelElasticSearch\Query;
 use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionHelper as BaseQueryExpressionHelper;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
+use Kraz\ReadModel\Query\SortExpression;
 use Kraz\ReadModel\ReadModelDescriptor;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModelElasticSearch\QueryStrategy\QueryStrategyInterface;
@@ -133,6 +134,33 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
         $result = $helper->apply($queryExpression, $fullTextSearchTerm, $includeData);
 
         return [...(is_array($data) ? $data : []), ...$result];
+    }
+
+    /**
+     * Build the Elasticsearch params for one cursor-paginated request.
+     *
+     * Delegates to {@see QueryExpressionHelper::applyCursor()} so all ES-specific
+     * cursor syntax (search_after, track_total_hits, sort overrides) is kept inside
+     * the helper/strategy and out of the DataSource.
+     *
+     * @phpstan-param list<mixed>|null               $searchAfter
+     * @phpstan-param int<1, max>                    $size
+     * @phpstan-param QueryExpressionProviderOptions $options
+     *
+     * @phpstan-return array<string, mixed>
+     */
+    public function applyCursor(
+        QueryExpression $queryExpression,
+        SortExpression $orderBySort,
+        array|null $searchAfter,
+        int $size,
+        ReadModelDescriptor|null $descriptor = null,
+        array $options = [],
+    ): array {
+        $fullTextSearchTerm = $options['fullTextSearchTerm'] ?? null;
+        $helper             = $this->createHelper($descriptor, $options);
+
+        return $helper->applyCursor($queryExpression, $fullTextSearchTerm, $orderBySort, $searchAfter, $size);
     }
 
     /** @phpstan-param QueryExpressionProviderOptions $options */

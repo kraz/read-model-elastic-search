@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelElasticSearch\QueryStrategy;
 
+use LogicException;
+
 use function is_array;
 use function key;
 
@@ -72,5 +74,17 @@ final class QueryStrategy1x implements QueryStrategyInterface
         $total = $result['hits']['total'] ?? 0;
 
         return (int) $total;
+    }
+
+    public function supportsCursorPagination(): bool
+    {
+        return false;
+    }
+
+    public function buildCursorParams(array|null $searchAfter): array
+    {
+        // ES 1.x predates `search_after` (added in 5.0); refuse rather than emulate
+        // via a keyset bool filter so callers don't pay for a half-feature.
+        throw new LogicException('Cursor pagination is not supported by Elasticsearch 1.x.');
     }
 }
